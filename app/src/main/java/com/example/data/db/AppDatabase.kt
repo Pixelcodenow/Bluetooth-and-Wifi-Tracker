@@ -4,20 +4,26 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.example.data.dao.SavedWifiDao
 import com.example.data.dao.TrackerDao
 import com.example.data.dao.TrackerEventDao
 import com.example.data.dao.UnknownTrackerDao
+import com.example.data.dao.WifiScanEventDao
+import com.example.data.entity.SavedWifiEntity
 import com.example.data.entity.TrackerEntity
 import com.example.data.entity.TrackerEventEntity
 import com.example.data.entity.UnknownTrackerEntity
+import com.example.data.entity.WifiScanEventEntity
 
 @Database(
     entities = [
         TrackerEntity::class,
         TrackerEventEntity::class,
-        UnknownTrackerEntity::class
+        UnknownTrackerEntity::class,
+        SavedWifiEntity::class,
+        WifiScanEventEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,6 +31,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun trackerDao(): TrackerDao
     abstract fun trackerEventDao(): TrackerEventDao
     abstract fun unknownTrackerDao(): UnknownTrackerDao
+    abstract fun savedWifiDao(): SavedWifiDao
+    abstract fun wifiScanEventDao(): WifiScanEventDao
 
     companion object {
         @Volatile

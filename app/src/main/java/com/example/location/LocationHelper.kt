@@ -26,6 +26,32 @@ class LocationHelper(private val context: Context) {
     private val locationManager: LocationManager? =
         context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
 
+    @SuppressLint("MissingPermission")
+    fun getLastLocation(): TrackerLocationInfo? {
+        if (locationManager == null) return null
+        try {
+            var bestLocation: Location? = null
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                bestLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            }
+            if (bestLocation == null && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                bestLocation = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            }
+            if (bestLocation == null && locationManager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
+                bestLocation = locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
+            }
+            if (bestLocation != null) {
+                return TrackerLocationInfo(
+                    latitude = bestLocation.latitude,
+                    longitude = bestLocation.longitude,
+                    accuracyMeters = bestLocation.accuracy,
+                    timestamp = bestLocation.time
+                )
+            }
+        } catch (_: Exception) {}
+        return null
+    }
+
     /**
      * Retrieve the phone's current or last known location safely using standard Android LocationManager.
      * Note: This captures the phone's location at the time of event, NOT the tracker's direct GPS.

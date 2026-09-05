@@ -22,7 +22,43 @@ class ExampleRobolectricTest {
   fun `read string from context`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
-    assertEquals("Bluetooth Tracker", appName)
+    assertEquals("Wireless Finder", appName)
+  }
+
+  @Test
+  fun `verify wifi signal levels and 10-block visual meters`() {
+    val excellent = com.example.wifi.WifiSignalLevel.fromRssi(-45)
+    assertEquals(com.example.wifi.WifiSignalLevel.EXCELLENT, excellent)
+    assertEquals(10, excellent.filledBlocks)
+    assertEquals("██████████", excellent.blocksString)
+
+    val good = com.example.wifi.WifiSignalLevel.fromRssi(-62)
+    assertEquals(com.example.wifi.WifiSignalLevel.GOOD, good)
+    assertEquals(8, good.filledBlocks)
+
+    val fair = com.example.wifi.WifiSignalLevel.fromRssi(-72)
+    assertEquals(com.example.wifi.WifiSignalLevel.FAIR, fair)
+    assertEquals(6, fair.filledBlocks)
+
+    val weak = com.example.wifi.WifiSignalLevel.fromRssi(-82)
+    assertEquals(com.example.wifi.WifiSignalLevel.WEAK, weak)
+    assertEquals(3, weak.filledBlocks)
+
+    val veryWeak = com.example.wifi.WifiSignalLevel.fromRssi(-92)
+    assertEquals(com.example.wifi.WifiSignalLevel.VERY_WEAK, veryWeak)
+    assertEquals(1, veryWeak.filledBlocks)
+  }
+
+  @Test
+  fun `verify wifi security parsing`() {
+    val wpa3 = com.example.wifi.WifiSecurityType.fromCapabilities("[WPA3-SAE-CCMP][RSN-SAE-CCMP]")
+    assertEquals(com.example.wifi.WifiSecurityType.WPA3, wpa3)
+
+    val wpa2 = com.example.wifi.WifiSecurityType.fromCapabilities("[WPA2-PSK-CCMP][RSN-PSK-CCMP]")
+    assertEquals(com.example.wifi.WifiSecurityType.WPA2, wpa2)
+
+    val open = com.example.wifi.WifiSecurityType.fromCapabilities("[ESS]")
+    assertEquals(com.example.wifi.WifiSecurityType.OPEN, open)
   }
 
   @Test

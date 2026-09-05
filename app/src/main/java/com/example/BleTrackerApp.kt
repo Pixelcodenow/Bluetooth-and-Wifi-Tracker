@@ -5,8 +5,10 @@ import com.example.alarm.FindPhoneAlarmManager
 import com.example.ble.BleManager
 import com.example.data.db.AppDatabase
 import com.example.data.repository.TrackerRepository
+import com.example.data.repository.WifiRepository
 import com.example.location.LocationHelper
 import com.example.notification.TrackerNotificationManager
+import com.example.wifi.WifiScannerManager
 
 class BleTrackerApp : Application() {
 
@@ -14,6 +16,9 @@ class BleTrackerApp : Application() {
         private set
 
     lateinit var repository: TrackerRepository
+        private set
+
+    lateinit var wifiRepository: WifiRepository
         private set
 
     lateinit var notificationManager: TrackerNotificationManager
@@ -28,6 +33,9 @@ class BleTrackerApp : Application() {
     lateinit var bleManager: BleManager
         private set
 
+    lateinit var wifiScannerManager: WifiScannerManager
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -38,12 +46,17 @@ class BleTrackerApp : Application() {
             trackerEventDao = database.trackerEventDao(),
             unknownTrackerDao = database.unknownTrackerDao()
         )
+        wifiRepository = WifiRepository(
+            savedWifiDao = database.savedWifiDao(),
+            wifiScanEventDao = database.wifiScanEventDao()
+        )
         notificationManager = TrackerNotificationManager(this)
         notificationManager.createNotificationChannels()
 
         alarmManager = FindPhoneAlarmManager(this)
         locationHelper = LocationHelper(this)
         bleManager = BleManager(this)
+        wifiScannerManager = WifiScannerManager(this, locationHelper)
     }
 
     companion object {

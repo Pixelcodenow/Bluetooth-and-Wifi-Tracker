@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Bluetooth Tracker"
+rootProject.name = "Wireless Finder"
 
 include(":app")

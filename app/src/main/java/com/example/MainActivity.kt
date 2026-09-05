@@ -2,8 +2,10 @@ package com.example
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -23,20 +25,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.BluetoothSearching
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeveloperBoard
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.outlined.BluetoothSearching
-import androidx.compose.material.icons.outlined.DeveloperBoard
-import androidx.compose.material.icons.outlined.Map
-import androidx.compose.material.icons.outlined.NearMe
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Sensors
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -68,19 +77,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.ble.DiscoveredBluetoothDevice
 import com.example.notification.TrackerNotificationManager
 import com.example.ui.components.AddTrackerSheet
 import com.example.ui.components.FindPhoneAlertOverlay
+import com.example.ui.components.UnifiedWirelessView
 import com.example.ui.screens.DeviceDetailsScreen
 import com.example.ui.screens.FindNearbyDeviceScreen
 import com.example.ui.screens.HardwareDocsScreen
-import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.MapScreen
 import com.example.ui.screens.NearbyDevicesScreen
 import com.example.ui.screens.RadarScreen
-import com.example.ui.screens.SafetyPrivacyScreen
+import com.example.ui.screens.SavedDevicesScreen
+import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.WifiDetailsScreen
+import com.example.ui.screens.WifiFindScreen
+import com.example.ui.screens.WifiScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.TrackerViewModel
+import com.example.viewmodel.WifiViewModel
+import com.example.wifi.WifiNetworkModel
 
 enum class AppDestination(
     val title: String,
@@ -88,16 +105,17 @@ enum class AppDestination(
     val unselectedIcon: ImageVector,
     val testTag: String
 ) {
-    NEARBY("Nearby", Icons.Filled.BluetoothSearching, Icons.Outlined.BluetoothSearching, "nav_nearby"),
-    TRACKERS("My Trackers", Icons.Filled.Sensors, Icons.Outlined.Sensors, "nav_trackers"),
-    RADAR("Find Device", Icons.Filled.NearMe, Icons.Outlined.NearMe, "nav_radar"),
-    MAP("Map", Icons.Filled.Map, Icons.Outlined.Map, "nav_map"),
-    DOCS("Docs", Icons.Filled.DeveloperBoard, Icons.Outlined.DeveloperBoard, "nav_docs")
+    BLUETOOTH("Bluetooth", Icons.Filled.BluetoothSearching, Icons.Outlined.BluetoothSearching, "nav_bluetooth"),
+    WIFI("Wi-Fi", Icons.Filled.Wifi, Icons.Outlined.Wifi, "nav_wifi"),
+    SAVED("Saved", Icons.Filled.Bookmark, Icons.Outlined.BookmarkBorder, "nav_saved"),
+    HISTORY("History", Icons.Filled.History, Icons.Outlined.History, "nav_history"),
+    SETTINGS("Settings", Icons.Filled.Settings, Icons.Outlined.Settings, "nav_settings")
 }
 
 class MainActivity : ComponentActivity() {
 
     private var trackerViewModel: TrackerViewModel? = null
+    private var wifiViewModel: WifiViewModel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,16 +126,19 @@ class MainActivity : ComponentActivity() {
             var isDarkMode by remember { mutableStateOf(systemDark) }
 
             MyApplicationTheme(darkTheme = isDarkMode) {
-                val vm: TrackerViewModel = viewModel(factory = TrackerViewModel.Factory)
-                trackerViewModel = vm
+                val trackerVm: TrackerViewModel = viewModel(factory = TrackerViewModel.Factory)
+                val wifiVm: WifiViewModel = viewModel(factory = WifiViewModel.Factory)
+                trackerViewModel = trackerVm
+                wifiViewModel = wifiVm
 
                 // Check intent actions
                 LaunchedEffect(intent) {
-                    handleIntent(intent, vm)
+                    handleIntent(intent, trackerVm)
                 }
 
                 MainAppScreen(
-                    viewModel = vm,
+                    trackerVm = trackerVm,
+                    wifiVm = wifiVm,
                     isDarkMode = isDarkMode,
                     onToggleDarkMode = { isDarkMode = !isDarkMode }
                 )
@@ -142,45 +163,58 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppScreen(
-    viewModel: TrackerViewModel,
+    trackerVm: TrackerViewModel,
+    wifiVm: WifiViewModel,
     isDarkMode: Boolean,
     onToggleDarkMode: () -> Unit
 ) {
     val context = LocalContext.current
-    var currentDestination by remember { mutableStateOf(AppDestination.NEARBY) }
-    var showAddSheet by remember { mutableStateOf(false) }
+    var currentDestination by remember { mutableStateOf(AppDestination.BLUETOOTH) }
+    var showAddTrackerSheet by remember { mutableStateOf(false) }
+    var isUnifiedViewActive by remember { mutableStateOf(false) }
 
-    // State flows from ViewModel
-    val trackers by viewModel.trackers.collectAsState()
-    val discoveredDevices by viewModel.discoveredDevices.collectAsState()
-    val isScanning by viewModel.isScanning.collectAsState()
-    val trackerStatuses by viewModel.trackerStatuses.collectAsState()
-    val isAlarmActive by viewModel.isAlarmActive.collectAsState()
-    val alarmSource by viewModel.alarmSource.collectAsState()
-    val selectedTracker by viewModel.selectedTracker.collectAsState()
+    // Secondary navigation states
+    var selectedWifiForDetails by remember { mutableStateOf<WifiNetworkModel?>(null) }
+    var wifiTargetIdForFind by remember { mutableStateOf<String?>(null) }
+    var isMapOpen by remember { mutableStateOf(false) }
+    var isRadarOpen by remember { mutableStateOf(false) }
+    var isHardwareDocsOpen by remember { mutableStateOf(false) }
 
-    // Scanner state
-    val filteredDevices by viewModel.filteredDevices.collectAsState()
-    val deviceStats by viewModel.deviceStats.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val activeFilter by viewModel.activeFilter.collectAsState()
-    val activeSort by viewModel.activeSort.collectAsState()
-    val selectedDeviceForDetails by viewModel.selectedDeviceForDetails.collectAsState()
-    val lockedTargetDevice by viewModel.lockedTargetDevice.collectAsState()
-    val lockedTargetTrend by viewModel.lockedTargetTrend.collectAsState()
+    // Bluetooth ViewModel states
+    val trackers by trackerVm.trackers.collectAsState()
+    val discoveredDevices by trackerVm.discoveredDevices.collectAsState()
+    val isBtScanning by trackerVm.isScanning.collectAsState()
+    val trackerStatuses by trackerVm.trackerStatuses.collectAsState()
+    val isAlarmActive by trackerVm.isAlarmActive.collectAsState()
+    val alarmSource by trackerVm.alarmSource.collectAsState()
+    val selectedTracker by trackerVm.selectedTracker.collectAsState()
+    val trackerEvents by trackerVm.trackerEvents.collectAsState()
+    val unknownTrackers by trackerVm.unknownTrackers.collectAsState()
 
-    var hasBluetoothScanPermission by remember { mutableStateOf(true) }
+    val filteredBtDevices by trackerVm.filteredDevices.collectAsState()
+    val btStats by trackerVm.deviceStats.collectAsState()
+    val btSearchQuery by trackerVm.searchQuery.collectAsState()
+    val btActiveFilter by trackerVm.activeFilter.collectAsState()
+    val btActiveSort by trackerVm.activeSort.collectAsState()
+    val selectedBtDeviceForDetails by trackerVm.selectedDeviceForDetails.collectAsState()
+    val lockedBtTargetDevice by trackerVm.lockedTargetDevice.collectAsState()
+    val lockedBtTargetTrend by trackerVm.lockedTargetTrend.collectAsState()
+
+    // Wi-Fi ViewModel states
+    val wifiNetworks by wifiVm.filteredNetworks.collectAsState()
+    val savedWifiNetworks by wifiVm.savedNetworks.collectAsState()
+    val wifiScanEvents by wifiVm.scanHistory.collectAsState()
+    val targetWifiNetwork by wifiVm.targetNetwork.collectAsState()
+    val isWifiEnabled by wifiVm.isWifiEnabled.collectAsState()
+
+    // Hardware status
     var isBluetoothEnabled by remember { mutableStateOf(true) }
 
-    // Permissions check
+    // Runtime permissions
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
-        hasBluetoothScanPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            results[Manifest.permission.BLUETOOTH_SCAN] == true && results[Manifest.permission.BLUETOOTH_CONNECT] == true
-        } else {
-            results[Manifest.permission.ACCESS_FINE_LOCATION] == true
-        }
+    ) {
+        // Permissions updated
     }
 
     LaunchedEffect(Unit) {
@@ -197,6 +231,9 @@ fun MainAppScreen(
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
             }
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
         }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -205,39 +242,93 @@ fun MainAppScreen(
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
         }
 
-        // Check if Bluetooth adapter is enabled
         val adapter = BluetoothAdapter.getDefaultAdapter()
         isBluetoothEnabled = adapter?.isEnabled == true
     }
 
-    // Modal Overlays for Device Details & Find Device
-    if (selectedDeviceForDetails != null) {
+    // Modal Overlays for Bluetooth Device Details & Find Mode
+    if (selectedBtDeviceForDetails != null) {
         DeviceDetailsScreen(
-            device = selectedDeviceForDetails!!,
-            onBack = { viewModel.closeDeviceDetails() },
-            onConnect = { viewModel.connectDevice(it) },
-            onDisconnect = { viewModel.disconnectDevice(it) },
+            device = selectedBtDeviceForDetails!!,
+            onBack = { trackerVm.closeDeviceDetails() },
+            onConnect = { trackerVm.connectDevice(it) },
+            onDisconnect = { trackerVm.disconnectDevice(it) },
             onFindDevice = {
-                viewModel.closeDeviceDetails()
-                viewModel.startFindingDevice(it.address)
+                trackerVm.closeDeviceDetails()
+                trackerVm.startFindingDevice(it.address)
             },
-            onToggleTracker = { viewModel.toggleTrackerStatus(it) }
+            onToggleTracker = { trackerVm.toggleTrackerStatus(it) }
         )
         return
     }
 
-    if (lockedTargetDevice != null) {
+    if (lockedBtTargetDevice != null) {
         FindNearbyDeviceScreen(
-            device = lockedTargetDevice!!,
-            signalTrend = lockedTargetTrend,
-            onStopFinding = { viewModel.stopFindingDevice() },
+            device = lockedBtTargetDevice!!,
+            signalTrend = lockedBtTargetTrend,
+            onStopFinding = { trackerVm.stopFindingDevice() },
             onViewOnMap = { dev ->
-                viewModel.viewDeviceLocationOnMap(dev)
-                currentDestination = AppDestination.MAP
-                viewModel.stopFindingDevice()
+                trackerVm.viewDeviceLocationOnMap(dev)
+                isMapOpen = true
+                trackerVm.stopFindingDevice()
             },
-            onToggleBuzzer = { viewModel.toggleBuzzer(it) }
+            onToggleBuzzer = { trackerVm.toggleBuzzer(it) }
         )
+        return
+    }
+
+    // Modal Overlays for Wi-Fi Details & Find Mode
+    if (selectedWifiForDetails != null) {
+        WifiDetailsScreen(
+            network = selectedWifiForDetails!!,
+            onBack = { selectedWifiForDetails = null },
+            onFindNetwork = { netId ->
+                wifiVm.setTargetNetwork(netId)
+                wifiTargetIdForFind = netId
+                selectedWifiForDetails = null
+            },
+            onToggleFavorite = { wifiVm.toggleFavorite(it) },
+            onRenameNetwork = { bssid, name -> wifiVm.renameNetwork(bssid, name) }
+        )
+        return
+    }
+
+    if (wifiTargetIdForFind != null) {
+        WifiFindScreen(
+            targetNetwork = targetWifiNetwork,
+            onBack = {
+                wifiTargetIdForFind = null
+                wifiVm.setTargetNetwork(null)
+            }
+        )
+        return
+    }
+
+    // Modal Overlays for Map, Radar, and Hardware Docs
+    if (isMapOpen) {
+        MapScreen(
+            trackers = trackers,
+            selectedTracker = selectedTracker,
+            onSelectTracker = { trackerVm.selectTracker(it) },
+            onNavigateHome = { isMapOpen = false }
+        )
+        return
+    }
+
+    if (isRadarOpen) {
+        RadarScreen(
+            trackers = trackers,
+            selectedTracker = selectedTracker,
+            trackerStatuses = trackerStatuses,
+            onSelectTracker = { trackerVm.selectTracker(it) },
+            onToggleBuzzer = { mac -> trackerVm.toggleBuzzer(mac) },
+            onNavigateHome = { isRadarOpen = false }
+        )
+        return
+    }
+
+    if (isHardwareDocsOpen) {
+        HardwareDocsScreen()
         return
     }
 
@@ -246,7 +337,7 @@ fun MainAppScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        text = currentDestination.title,
+                        text = if (isUnifiedViewActive) "All Wireless Devices" else currentDestination.title,
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp
@@ -277,10 +368,13 @@ fun MainAppScreen(
                 tonalElevation = 8.dp
             ) {
                 AppDestination.entries.forEach { destination ->
-                    val isSelected = currentDestination == destination
+                    val isSelected = currentDestination == destination && !isUnifiedViewActive
                     NavigationBarItem(
                         selected = isSelected,
-                        onClick = { currentDestination = destination },
+                        onClick = {
+                            isUnifiedViewActive = false
+                            currentDestination = destination
+                        },
                         icon = {
                             Icon(
                                 imageVector = if (isSelected) destination.selectedIcon else destination.unselectedIcon,
@@ -307,7 +401,7 @@ fun MainAppScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Bluetooth Disabled Banner if Bluetooth is off
+            // Bluetooth Disabled Banner
             if (!isBluetoothEnabled) {
                 Surface(
                     color = Color(0xFFEF4444),
@@ -337,9 +431,7 @@ fun MainAppScreen(
                                 try {
                                     val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
                                     context.startActivity(enableBtIntent)
-                                } catch (e: Exception) {
-                                    // ignore
-                                }
+                                } catch (_: Exception) {}
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
@@ -351,70 +443,93 @@ fun MainAppScreen(
             }
 
             Box(modifier = Modifier.fillMaxSize()) {
-                Crossfade(targetState = currentDestination, label = "ScreenTransition") { destination ->
-                    when (destination) {
-                        AppDestination.NEARBY -> {
-                            NearbyDevicesScreen(
-                                devices = filteredDevices,
-                                stats = deviceStats,
-                                isScanning = isScanning,
-                                searchQuery = searchQuery,
-                                activeFilter = activeFilter,
-                                activeSort = activeSort,
-                                onStartScan = { viewModel.startScan() },
-                                onStopScan = { viewModel.stopScan() },
-                                onSearchChange = { viewModel.setSearchQuery(it) },
-                                onFilterChange = { viewModel.setFilter(it) },
-                                onSortChange = { viewModel.setSort(it) },
-                                onDeviceClick = { dev -> viewModel.openDeviceDetails(dev.address) },
-                                onFindDeviceClick = { dev -> viewModel.startFindingDevice(dev.address) }
-                            )
-                        }
-                        AppDestination.TRACKERS -> {
-                            HomeScreen(
-                                trackers = trackers,
-                                trackerStatuses = trackerStatuses,
-                                onAddTrackerClick = {
-                                    viewModel.startScan()
-                                    showAddSheet = true
-                                },
-                                onTrackerClick = { tracker ->
-                                    viewModel.selectTracker(tracker.id)
-                                    currentDestination = AppDestination.RADAR
-                                },
-                                onFindRadarClick = { tracker ->
-                                    viewModel.selectTracker(tracker.id)
-                                    currentDestination = AppDestination.RADAR
-                                },
-                                onToggleBuzzer = { mac -> viewModel.toggleBuzzer(mac) },
-                                onToggleFavorite = { id, current -> viewModel.toggleFavorite(id, current) },
-                                onEditTracker = { id, name, color, icon ->
-                                    viewModel.updateCustomization(id, name, color, icon)
-                                },
-                                onDeleteTracker = { tracker -> viewModel.deleteTracker(tracker) },
-                                onTriggerFindPhoneTest = { viewModel.triggerFindPhoneTest() }
-                            )
-                        }
-                        AppDestination.RADAR -> {
-                            RadarScreen(
-                                trackers = trackers,
-                                selectedTracker = selectedTracker,
-                                trackerStatuses = trackerStatuses,
-                                onSelectTracker = { viewModel.selectTracker(it) },
-                                onToggleBuzzer = { mac -> viewModel.toggleBuzzer(mac) },
-                                onNavigateHome = { currentDestination = AppDestination.TRACKERS }
-                            )
-                        }
-                        AppDestination.MAP -> {
-                            MapScreen(
-                                trackers = trackers,
-                                selectedTracker = selectedTracker,
-                                onSelectTracker = { viewModel.selectTracker(it) },
-                                onNavigateHome = { currentDestination = AppDestination.TRACKERS }
-                            )
-                        }
-                        AppDestination.DOCS -> {
-                            HardwareDocsScreen()
+                if (isUnifiedViewActive) {
+                    UnifiedWirelessView(
+                        bluetoothDevices = filteredBtDevices,
+                        wifiNetworks = wifiNetworks,
+                        onBluetoothClick = { dev -> trackerVm.openDeviceDetails(dev.address) },
+                        onWifiClick = { net -> selectedWifiForDetails = net }
+                    )
+                } else {
+                    Crossfade(targetState = currentDestination, label = "MainDestinationTransition") { destination ->
+                        when (destination) {
+                            AppDestination.BLUETOOTH -> {
+                                NearbyDevicesScreen(
+                                    devices = filteredBtDevices,
+                                    stats = btStats,
+                                    isScanning = isBtScanning,
+                                    searchQuery = btSearchQuery,
+                                    activeFilter = btActiveFilter,
+                                    activeSort = btActiveSort,
+                                    onStartScan = { trackerVm.startScan() },
+                                    onStopScan = { trackerVm.stopScan() },
+                                    onSearchChange = { trackerVm.setSearchQuery(it) },
+                                    onFilterChange = { trackerVm.setFilter(it) },
+                                    onSortChange = { trackerVm.setSort(it) },
+                                    onDeviceClick = { dev -> trackerVm.openDeviceDetails(dev.address) },
+                                    onFindDeviceClick = { dev -> trackerVm.startFindingDevice(dev.address) }
+                                )
+                            }
+                            AppDestination.WIFI -> {
+                                WifiScreen(
+                                    viewModel = wifiVm,
+                                    onNavigateToDetails = { net ->
+                                        selectedWifiForDetails = net
+                                        wifiVm.recordHistory(net)
+                                    },
+                                    onNavigateToFind = { netId ->
+                                        wifiVm.setTargetNetwork(netId)
+                                        wifiTargetIdForFind = netId
+                                    },
+                                    onToggleUnifiedView = { isUnifiedViewActive = !isUnifiedViewActive },
+                                    isUnifiedViewActive = isUnifiedViewActive
+                                )
+                            }
+                            AppDestination.SAVED -> {
+                                SavedDevicesScreen(
+                                    trackers = trackers,
+                                    liveStatuses = trackerStatuses,
+                                    savedWifiNetworks = savedWifiNetworks,
+                                    onRingTracker = { tracker -> trackerVm.toggleBuzzer(tracker.macAddress) },
+                                    onStopRinging = { tracker -> trackerVm.toggleBuzzer(tracker.macAddress) },
+                                    onFindDevice = { tracker ->
+                                        trackerVm.selectTracker(tracker.id)
+                                        isRadarOpen = true
+                                    },
+                                    onEditTracker = { tracker, name, color, icon ->
+                                        trackerVm.updateCustomization(tracker.id, name, color, icon)
+                                    },
+                                    onDeleteTracker = { tracker -> trackerVm.deleteTracker(tracker) },
+                                    onAddTrackerClick = {
+                                        trackerVm.startScan()
+                                        showAddTrackerSheet = true
+                                    },
+                                    onFindWifi = { bssid ->
+                                        wifiVm.setTargetNetwork(bssid)
+                                        wifiTargetIdForFind = bssid
+                                    },
+                                    onRenameWifi = { bssid, name -> wifiVm.renameNetwork(bssid, name) },
+                                    onDeleteWifi = { bssid -> wifiVm.deleteSaved(bssid) }
+                                )
+                            }
+                            AppDestination.HISTORY -> {
+                                HistoryScreen(
+                                    trackerEvents = trackerEvents,
+                                    unknownTrackers = unknownTrackers,
+                                    wifiScanEvents = wifiScanEvents,
+                                    onClearWifiHistory = { wifiVm.clearHistory() },
+                                    onViewOnMap = { lat, lng, name ->
+                                        isMapOpen = true
+                                    }
+                                )
+                            }
+                            AppDestination.SETTINGS -> {
+                                SettingsScreen(
+                                    isBluetoothEnabled = isBluetoothEnabled,
+                                    isWifiEnabled = isWifiEnabled,
+                                    onNavigateToHardwareDocs = { isHardwareDocsOpen = true }
+                                )
+                            }
                         }
                     }
                 }
@@ -423,18 +538,18 @@ fun MainAppScreen(
     }
 
     // Modal Bottom Sheet for pairing new BLE trackers
-    if (showAddSheet) {
+    if (showAddTrackerSheet) {
         AddTrackerSheet(
-            isScanning = isScanning,
+            isScanning = isBtScanning,
             discoveredDevices = discoveredDevices,
-            onStartScan = { viewModel.startScan() },
-            onStopScan = { viewModel.stopScan() },
+            onStartScan = { trackerVm.startScan() },
+            onStopScan = { trackerVm.stopScan() },
             onPairDevice = { dev, name, icon, color ->
-                viewModel.pairDevice(dev, name, icon, color)
+                trackerVm.pairDevice(dev, name, icon, color)
             },
             onDismiss = {
-                viewModel.stopScan()
-                showAddSheet = false
+                trackerVm.stopScan()
+                showAddTrackerSheet = false
             }
         )
     }
@@ -443,6 +558,6 @@ fun MainAppScreen(
     FindPhoneAlertOverlay(
         isAlarmActive = isAlarmActive,
         sourceTrackerName = alarmSource,
-        onStopAlarm = { viewModel.stopPhoneAlarm() }
+        onStopAlarm = { trackerVm.stopPhoneAlarm() }
     )
 }
