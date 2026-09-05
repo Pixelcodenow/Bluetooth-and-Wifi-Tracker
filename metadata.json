@@ -1,0 +1,6 @@
+{
+  "name": "Bluetooth Tracker",
+  "description": "Real Bluetooth & BLE device scanner and tracker featuring live RSSI monitoring, GATT service discovery, hot/cold proximity radar, custom hardware tracker integration, and Find Phone alerts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
